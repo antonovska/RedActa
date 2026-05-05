@@ -69,7 +69,6 @@ def format_revision_reference(label: str) -> str:
     value = compact(to_genitive(label))
     if not value:
         return ""
-    value = value[:1].lower() + value[1:]
     return f"(в ред. {value})"
 
 
