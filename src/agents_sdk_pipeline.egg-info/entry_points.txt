@@ -1,2 +1,0 @@
-[console_scripts]
-graph-pipeline = graph_pipeline.cli:main
