@@ -3,20 +3,18 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agents-sdk-pipeline"
+name = "redacta"
 version = "0.1.0"
-description = "Graph pipeline for amendment analysis and DOCX redaction"
+description = "Pipeline for automated legal document amendment processing"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.76.0",
     "python-docx>=1.1.2",
-    "langgraph>=0.2.70",
-    "langchain-core>=0.3.0",
 ]
 
 [project.scripts]
-graph-pipeline = "redacta.cli:main"
+redacta = "redacta.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
