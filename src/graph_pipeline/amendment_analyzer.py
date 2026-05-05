@@ -11,6 +11,7 @@ from docx import Document
 
 from .base_agent import compact, read_non_empty_paragraphs
 from .amendment_analysis import AmendmentLLMAnalyzer
+from .deterministic_intent_extractor import DeterministicIntentExtractor
 from .document_classifier import classify_amendment_complexity
 from .schema import ChangeIntent
 from .schema import AmendmentAnalysis, AmendmentDocumentMeta
@@ -56,10 +57,13 @@ def normalize_structured_replacement_intent(intent: ChangeIntent) -> ChangeInten
 class AmendmentAnalyzer:
     def __init__(self, config: dict[str, Any]) -> None:
         self._inner = AmendmentLLMAnalyzer(config)
+        self._deterministic = DeterministicIntentExtractor()
 
     def analyze(self, amendment_doc: Path) -> AmendmentAnalysis:
         lines = read_non_empty_paragraphs(amendment_doc)
+        deterministic_intents = self._deterministic.extract(lines, build_source_document_label(amendment_doc))
         result = self._inner.analyze(amendment_doc)
+        result["intents"] = self._merge_deterministic_intents(deterministic_intents, result.get("intents", []))
         return self._build_analysis(amendment_doc, lines, result)
 
     def repair_analysis(
@@ -76,6 +80,22 @@ class AmendmentAnalyzer:
         )
         result["coverage_directives"] = list(directives)
         return self._build_analysis(amendment_doc, lines, result)
+
+    def _merge_deterministic_intents(
+        self,
+        deterministic_intents: list[ChangeIntent],
+        llm_intents: list[ChangeIntent],
+    ) -> list[ChangeIntent]:
+        if not deterministic_intents:
+            return llm_intents
+        merged = list(deterministic_intents)
+        deterministic_excerpts = {compact(intent.source_excerpt).lower() for intent in deterministic_intents}
+        for intent in llm_intents:
+            excerpt = compact(intent.source_excerpt).lower()
+            if excerpt and excerpt in deterministic_excerpts:
+                continue
+            merged.append(intent)
+        return merged
 
     def _build_analysis(self, amendment_doc: Path, lines: list[str], result: dict[str, Any]) -> AmendmentAnalysis:
         label = build_source_document_label(amendment_doc)
