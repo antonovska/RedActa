@@ -4,7 +4,7 @@
 
 Публичная демо-версия рассчитана на Google Colab с GPU T4. Демо использует нативную загрузку и скачивание файлов в Colab.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/appankratova/RedActa/blob/main/notebooks/demo.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/antonovska/RedActa/blob/main/notebooks/demo.ipynb)
 
 ## Статус
 
