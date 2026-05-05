@@ -33,6 +33,12 @@ tests/tmp*/
 
 # Local project planning notes
 PROJECT_TASKS.md
+структура папок редакций.txt
+структура пометок.txt
+
+# Internal AI assistant working directories
+.kiro/
+.claude/
 
 # Private/generated documents
 *.docx
