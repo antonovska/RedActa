@@ -20,6 +20,7 @@ from .editor import PipelineEditor
 from .ooxml_reader import find_section_candidates, find_table_section_candidates, read_paragraph_records
 from .pipeline_checklist import PipelineChecklist
 from .resolver import PipelineResolver
+from .revision_markers import RevisionMarkerInserter
 from .run_case import (
     _analysis_gate_details,
     _enforce_resolution_gate,
@@ -224,6 +225,7 @@ def node_initialize_runtime(state: PipelineState) -> PipelineState:
         "editor": PipelineEditor(),
         "checklist_builder": ValidationChecklistBuilder(),
         "validator": StrictJudgeValidator(config),
+        "marker_inserter": RevisionMarkerInserter(),
     }
     case = state["case"]
     base_docs = case.get("base_docs") or ([case["base_doc"]] if case.get("base_doc") else [])
@@ -399,6 +401,7 @@ def node_execute_pipeline(state: PipelineState) -> PipelineState:
                     editor=runtime["editor"],
                     checklist_builder=runtime["checklist_builder"],
                     validator=runtime["validator"],
+                    marker_inserter=runtime["marker_inserter"],
                 )
             )
         validation = {
@@ -439,6 +442,7 @@ def node_execute_pipeline(state: PipelineState) -> PipelineState:
         editor=runtime["editor"],
         checklist_builder=runtime["checklist_builder"],
         validator=runtime["validator"],
+        marker_inserter=runtime["marker_inserter"],
     )
     result = {
         "case_id": state["case_id"],

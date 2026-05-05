@@ -18,6 +18,7 @@ from .config import load_models_config
 from .editor import PipelineEditor
 from .pipeline_checklist import PipelineChecklist
 from .resolver import PipelineResolver
+from .revision_markers import RevisionMarkerInserter
 from .service_tables import build_service_table_specs
 from .skeleton_builder import SkeletonBuilder
 from .validation_checklist_builder import ValidationChecklistBuilder
@@ -406,6 +407,7 @@ def _run_single_base_flow(
     editor: PipelineEditor,
     checklist_builder: ValidationChecklistBuilder,
     validator: StrictJudgeValidator,
+    marker_inserter: RevisionMarkerInserter,
 ) -> dict[str, Any]:
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     _progress(case_id, "--- Шаг 2/4: Каркас и правки ---")
@@ -555,6 +557,7 @@ def _run_single_base_flow(
                 pass_name="repair",
             )
         edit_result = editor.edit(current_doc, step_output, resolution["resolved_operations"])
+        marker_result = marker_inserter.insert_markers(step_output, resolved_operations)
         _progress(
             case_id,
             f"    editor statuses={len(edit_result['statuses'])}, output={step_output.name}",
@@ -568,6 +571,7 @@ def _run_single_base_flow(
                 "amendment": amendment_analysis.metadata.document_label,
                 "output_doc": str(step_output),
                 "statuses": list(edit_result["statuses"]),
+                "revision_markers": list(marker_result),
             },
         )
         steps.append(
@@ -578,6 +582,7 @@ def _run_single_base_flow(
                     "debug_candidates": resolution["debug_candidates"],
                 },
                 "edit": edit_result,
+                "revision_markers": marker_result,
                 "output_doc": str(step_output),
             }
         )
@@ -678,6 +683,7 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
     editor = PipelineEditor()
     checklist_builder = ValidationChecklistBuilder()
     validator = StrictJudgeValidator(config)
+    marker_inserter = RevisionMarkerInserter()
 
     case_topology = case.get("case_topology", "standard_single")
     amendment_paths = case["amendment_docs"]
@@ -744,6 +750,7 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
                     editor=editor,
                     checklist_builder=checklist_builder,
                     validator=validator,
+                    marker_inserter=marker_inserter,
                 )
             )
         return {
@@ -777,6 +784,7 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
         editor=editor,
         checklist_builder=checklist_builder,
         validator=validator,
+        marker_inserter=marker_inserter,
     )
 
     result = {

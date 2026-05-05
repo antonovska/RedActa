@@ -170,6 +170,7 @@ class EditorV2:
     def edit(self, base_doc: Path, output_doc: Path, operations: list[ResolvedOperation]) -> dict[str, Any]:
         document = Document(base_doc)
         statuses: list[str] = []
+        applied_operations: list[dict[str, Any]] = []
         drift = IndexDriftTracker(len(document.paragraphs))
 
         priority = {
@@ -185,6 +186,7 @@ class EditorV2:
         }
 
         for operation in sorted(operations, key=lambda item: priority.get(item.operation_kind, 99)):
+            status_count = len(statuses)
             if operation.status != "resolved":
                 statuses.append(f"{operation.operation_id}: skipped: {operation.ambiguity_reason or operation.status}")
                 continue
@@ -243,10 +245,27 @@ class EditorV2:
             else:
                 statuses.append(f"{operation.operation_id}: skipped: unsupported operation_kind")
                 continue
+            if len(statuses) > status_count and f"{operation.operation_id}: applied:" in statuses[-1]:
+                applied_operations.append(self._operation_log_entry(operation))
 
         output_doc.parent.mkdir(parents=True, exist_ok=True)
         document.save(output_doc)
-        return {"statuses": statuses, "drift_events": drift.events()}
+        return {"statuses": statuses, "drift_events": drift.events(), "applied_operations": applied_operations}
+
+    def _operation_log_entry(self, operation: ResolvedOperation) -> dict[str, Any]:
+        return {
+            "operation_id": operation.operation_id,
+            "operation_kind": operation.operation_kind,
+            "paragraph_indices": list(operation.paragraph_indices),
+            "insert_after_index": operation.insert_after_index,
+            "source_document_label": operation.source_document_label,
+            "point_ref": operation.point_ref,
+            "point_number": operation.point_number,
+            "parent_point_ref": operation.parent_point_ref,
+            "subpoint_ref": operation.subpoint_ref,
+            "paragraph_ordinal": operation.paragraph_ordinal,
+            "note_text": operation.note_text,
+        }
 
     def _apply_insert_point(self, document: Document, operation: ResolvedOperation, drift: IndexDriftTracker) -> bool:
         paragraphs = document.paragraphs
@@ -257,11 +276,7 @@ class EditorV2:
         if looks_short_list_item(operation.new_text):
             set_semicolon_ending(anchor)
         new_paragraph = clone_paragraph_after(anchor, operation.new_text)
-        inserted = 1
-        if operation.note_text:
-            new_paragraph._p.addnext(build_annotation_paragraph(operation.note_text))
-            inserted += 1
-        drift.record_insert(operation.operation_id, adjusted, inserted)
+        drift.record_insert(operation.operation_id, adjusted, 1)
         return True
 
     def _apply_replace_point(self, document: Document, operation: ResolvedOperation, drift: IndexDriftTracker) -> None:
@@ -306,9 +321,6 @@ class EditorV2:
             else:
                 text = text + '"'
         replace_paragraph_text_preserving_ooxml(paragraph, text)
-        if operation.note_text:
-            paragraph._p.addnext(build_annotation_paragraph(operation.note_text))
-            drift.record_insert(operation.operation_id, point_index, 1)
 
     def _resolve_replace_point_index(self, document: Document, operation: ResolvedOperation, drift: IndexDriftTracker) -> int:
         if operation.point_number and operation.point_number > 0:
@@ -323,7 +335,7 @@ class EditorV2:
         operation: ResolvedOperation,
         drift: IndexDriftTracker,
     ) -> tuple[int, str]:
-        changed_paragraphs: list[Paragraph] = []
+        changed_paragraphs: list[tuple[Paragraph, int]] = []
 
         # Try drift-adjusted indices first.
         for original_index in operation.paragraph_indices:
@@ -336,30 +348,21 @@ class EditorV2:
             if updated_text is None:
                 continue
             replace_paragraph_text_preserving_ooxml(paragraph, updated_text)
-            changed_paragraphs.append(paragraph)
+            changed_paragraphs.append((paragraph, adjusted))
 
         method = "adjusted_index"
 
         # Global fallback: if adjusted indices found nothing, scan the whole document.
         if not changed_paragraphs and operation.old_text:
             method = "global_fallback"
-            for paragraph in document.paragraphs:
+            for current_index, paragraph in enumerate(document.paragraphs):
                 replacement = operation.new_text.upper() if paragraph.text == paragraph.text.upper() else operation.new_text
                 updated_text = self._replace_phrase_variants(paragraph.text, operation.old_text, replacement)
                 if updated_text is None:
                     continue
                 replace_paragraph_text_preserving_ooxml(paragraph, updated_text)
-                changed_paragraphs.append(paragraph)
+                changed_paragraphs.append((paragraph, current_index))
 
-        marker_text = self._operation_marker_text(operation)
-        for paragraph in reversed(changed_paragraphs):
-            if self._is_structural_paragraph(paragraph):
-                continue
-            try:
-                p_idx = document.paragraphs.index(paragraph)
-            except ValueError:
-                p_idx = None
-            self._insert_marker_after(paragraph, marker_text, operation, drift, p_idx)
         return len(changed_paragraphs), method
 
     def _replace_phrase_variants(self, text: str, old_text: str, replacement: str) -> str | None:
@@ -406,7 +409,8 @@ class EditorV2:
         if anchor_index is None:
             return False
         anchor = document.paragraphs[anchor_index]
-        set_semicolon_ending(anchor)
+        if not anchor.text.strip().startswith("("):
+            set_semicolon_ending(anchor)
         split_items = self._split_inline_subitems(operation.new_item_text)
         inserted = 0
         if len(split_items) > 1:
@@ -414,22 +418,18 @@ class EditorV2:
             for marker, item_text in split_items:
                 new_paragraph = clone_paragraph_after(current_anchor, item_text)
                 inserted += 1
-                note_text = self._build_subitem_note(marker, operation)
-                if note_text:
-                    new_paragraph._p.addnext(build_annotation_paragraph(note_text))
-                    inserted += 1
                 current_anchor = new_paragraph
             drift.record_insert(operation.operation_id, anchor_index, inserted)
             return True
         new_paragraph = clone_paragraph_after(anchor, operation.new_item_text)
-        inserted = 1
-        if operation.note_text:
-            new_paragraph._p.addnext(build_annotation_paragraph(operation.note_text))
-            inserted += 1
-        drift.record_insert(operation.operation_id, anchor_index, inserted)
+        drift.record_insert(operation.operation_id, anchor_index, 1)
         return True
 
     def _resolve_insert_anchor_index(self, document: Document, operation: ResolvedOperation, drift: IndexDriftTracker) -> int | None:
+        if operation.parent_point_number and operation.subpoint_ref:
+            idx = self._find_previous_subpoint_end_index(document, operation.parent_point_number, operation.subpoint_ref)
+            if idx is not None:
+                return idx
         if operation.point_number and operation.point_number > 0:
             idx = self._find_point_block_end_index(document, operation.point_number)
             if idx is not None:
@@ -438,6 +438,52 @@ class EditorV2:
         if not (0 <= adjusted < len(document.paragraphs)):
             return None
         return adjusted
+
+    def _find_previous_subpoint_end_index(
+        self,
+        document: Document,
+        parent_point_number: int,
+        subpoint_ref: str,
+    ) -> int | None:
+        previous_ref = self._previous_subpoint_ref(subpoint_ref)
+        if not previous_ref:
+            return None
+        top_point_pattern = re.compile(r"^\d+\.\s+")
+        subpoint_pattern = re.compile(r"^[а-яёa-z](?:\(\d+\))?\)\s+", re.IGNORECASE)
+        previous_pattern = re.compile(rf"^{re.escape(previous_ref)}\)\s+", re.IGNORECASE)
+        point_pattern = re.compile(rf"^{parent_point_number}\.\s+")
+        for point_start, paragraph in enumerate(document.paragraphs):
+            if not point_pattern.match(paragraph.text.strip()):
+                continue
+            previous_start: int | None = None
+            previous_end: int | None = None
+            for idx in range(point_start + 1, len(document.paragraphs)):
+                text = document.paragraphs[idx].text.strip()
+                if top_point_pattern.match(text):
+                    break
+                if previous_start is None:
+                    if previous_pattern.match(text):
+                        previous_start = idx
+                        previous_end = idx
+                    continue
+                if subpoint_pattern.match(text):
+                    break
+                if text:
+                    previous_end = idx
+            if previous_end is not None:
+                return previous_end
+        return None
+
+    def _previous_subpoint_ref(self, ref: str) -> str:
+        value = (ref or "").strip().lower()
+        compound = re.match(r"^([а-яёa-z])\(\d+\)$", value, re.IGNORECASE)
+        if compound:
+            return compound.group(1).lower()
+        letters = "абвгдежзиклмнопрстуфхцчшщэюя"
+        if len(value) == 1 and value in letters:
+            index = letters.index(value)
+            return "" if index == 0 else letters[index - 1]
+        return ""
 
     def _find_point_block_end_index(self, document: Document, point_number: int) -> int | None:
         paragraphs = document.paragraphs
@@ -535,9 +581,6 @@ class EditorV2:
                 template_index=data_template_idx,
             )
 
-        if operation.note_text:
-            note_values = [operation.note_text] + [""] * (len(table.rows[0].cells) - 1)
-            self._insert_table_row_after(table, last_idx, note_values)
         return True
 
     def _parse_table_payload(self, lines: list[str]) -> dict[str, list[list[str]] | list[str]]:
@@ -677,15 +720,16 @@ class EditorV2:
             return False
         paragraph = document.paragraphs[adjusted]
         text = paragraph.text.rstrip()
+        appended = operation.appended_words.strip()
         if text.endswith("г."):
-            text = text[:-2] + " г. " + operation.appended_words.rstrip(".") + "."
+            text = text[:-2] + " г. " + appended.rstrip(".") + "."
+        elif text.endswith(";"):
+            text = text[:-1].rstrip() + appended.rstrip(".;") + ";"
         elif text.endswith("."):
-            text = text[:-1] + ". " + operation.appended_words.rstrip(".") + "."
+            text = text[:-1] + ". " + appended.rstrip(".") + "."
         else:
-            text = text + " " + operation.appended_words.rstrip(".") + "."
+            text = text + " " + appended.rstrip(".") + "."
         replace_paragraph_text_preserving_ooxml(paragraph, text)
-        if operation.note_text:
-            paragraph._p.addnext(build_annotation_paragraph(operation.note_text))
         return True
 
     def _is_structural_paragraph(self, paragraph: Paragraph) -> bool:
@@ -775,8 +819,6 @@ class EditorV2:
             return False
         paragraph = document.paragraphs[adjusted]
         replace_paragraph_text_preserving_ooxml(paragraph, operation.new_text)
-        marker_text = self._operation_marker_text(operation)
-        self._insert_marker_after(paragraph, marker_text, operation, drift, adjusted)
         return True
 
     def _apply_replace_appendix_block(self, document: Document, operation: ResolvedOperation, drift: IndexDriftTracker) -> bool:
@@ -792,10 +834,6 @@ class EditorV2:
         current_anchor = anchor
         for line in operation.new_block_lines:
             current_anchor = clone_paragraph_after(current_anchor, line)
-            inserted_count += 1
-        marker_text = self._operation_marker_text(operation)
-        if marker_text and inserted_count > 0 and not self._marker_already_present(current_anchor, marker_text):
-            current_anchor._p.addnext(build_annotation_paragraph(marker_text))
             inserted_count += 1
         drift.record_replace_range(operation.operation_id, adjusted_start, deleted_count, inserted_count)
         return True
