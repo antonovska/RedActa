@@ -1,54 +1,31 @@
-# Python caches
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
-
-# Python packaging artifacts
 *.egg-info/
 dist/
 build/
-
-# Virtual environments
 .venv/
+.pytest_cache/
 
-# Local environment files
+# Environment
 *.env
 .env
+config/models.local.json
 
-# Runtime outputs and private data produced by this repo
+# Runtime data (generated locally)
 artifacts/*
 !artifacts/.gitkeep
-docs/reports/
-docs/superpowers/
-docs/*.md
-!docs/ARCHITECTURE.md
-!docs/CAPABILITY_LEVELS.md
-!docs/CAPABILITY_BACKLOG.md
-!docs/LEVEL_1_CASES.md
 redactions/*
 !redactions/.gitkeep
 models/*
 !models/.gitkeep
-tests/tmp*/
-
-# Local project planning notes
-PROJECT_TASKS.md
-структура папок редакций.txt
-структура пометок.txt
-
-# Internal AI assistant working directories
-.kiro/
-.claude/
-
-# Development-only: tests stay local, not published
-tests/
-
-# Private/generated documents
 *.docx
 
-# Local app/runtime artifacts
+# Jupyter
 .ipynb_checkpoints/
-.worktrees/
 
-# Private runtime configs with machine-specific paths
-config/models.local.json
+# IDE and local tooling
+.kiro/
+.claude/
+.worktrees/
+tests/
