@@ -18,29 +18,113 @@ class ConsultantMarkerFormatter:
         if not label:
             return ""
 
+        # Паттерн для repeal_point - "утратил силу. - ..."
         if operation.operation_kind == "repeal_point":
-            return ""
+            if operation.point_number:
+                return f"{operation.point_number}. Утратил силу. - {label}"
+            return f"Утратил силу. - {label}"
 
         introduced_label = self._introduced_label(operation.source_document_label)
+
+        # Паттерн для replace_table_row
+        if operation.operation_kind == "replace_table_row":
+            if operation.table_row_ref:
+                return f"(строка {operation.table_row_ref} в ред. {label})"
+            if operation.structured_entry_ref:
+                return f"(запись {operation.structured_entry_ref} в ред. {label})"
+            return f"(таблица в ред. {label})"
+
+        # Паттерн для replace_structured_entry
+        if operation.operation_kind == "replace_structured_entry":
+            if operation.structured_entry_ref:
+                return f"(запись {operation.structured_entry_ref} в ред. {label})"
+            if operation.table_row_ref:
+                return f"(строка {operation.table_row_ref} в ред. {label})"
+            return f"(структурированная запись в ред. {label})"
+
+        # Паттерн для replace_person_role
+        if operation.operation_kind == "replace_person_role":
+            return f"(должность заменена {introduced_label})"
+
+        # Паттерн для insert_list_entry
+        if operation.operation_kind == "insert_list_entry":
+            return f"(элемент введен {introduced_label})"
+
+        # Паттерн для repeal_appendix_block
+        if operation.operation_kind == "repeal_appendix_block":
+            if operation.appendix_number:
+                return f"(Приложение {operation.appendix_number} утратило силу. - {label})"
+            return f"(приложение утратило силу. - {label})"
+
+        # Паттерн для replace_appendix_block
+        if operation.operation_kind == "replace_appendix_block":
+            if operation.appendix_number:
+                return f"(Приложение {operation.appendix_number} в ред. {label})"
+            return f"(приложение в ред. {label})"
+
+        # Паттерн для insert_point
+        if operation.operation_kind == "insert_point":
+            if operation.point_number:
+                return f"(п. {operation.point_number} введен {introduced_label})"
+            if operation.point_ref:
+                return f"(п. {operation.point_ref} введен {introduced_label})"
+            return f"(введен {introduced_label})"
+
+        # Паттерн для append_words_to_point
+        if operation.operation_kind == "append_words_to_point":
+            if operation.point_number:
+                return f"(п. {operation.point_number} дополнено {introduced_label})"
+            if operation.point_ref:
+                return f"(п. {operation.point_ref} дополнено {introduced_label})"
+            return f"(дополнено {introduced_label})"
+
+        # Паттерн для абзаца внутри подпункта
         if operation.operation_kind == "append_section_item" and operation.paragraph_ordinal is not None:
-            return f"(\u0430\u0431\u0437\u0430\u0446 \u0432\u0432\u0435\u0434\u0435\u043d {introduced_label})"
+            return f"(абзац введен {introduced_label})"
 
+        # Паттерн для замены абзаца внутри подпункта
         if operation.operation_kind == "replace_point" and operation.paragraph_ordinal is not None:
-            return f"(\u0432 \u0440\u0435\u0434. {label})"
+            return f"(в ред. {label})"
 
+        # Паттерн для подпункта (введен/в ред.)
         if operation.subpoint_ref:
             marker = compact(operation.subpoint_ref)
             if operation.operation_kind == "append_section_item":
-                return f'(\u043f\u043f. "{marker}" \u0432\u0432\u0435\u0434\u0435\u043d {introduced_label})'
+                return f'(пп. "{marker}" введен {introduced_label})'
             if operation.operation_kind == "replace_point":
-                return f'(\u043f\u043f. "{marker}" \u0432 \u0440\u0435\u0434. {label})'
+                return f'(пп. "{marker}" в ред. {label})'
 
-        return f"(\u0432 \u0440\u0435\u0434. {label})"
+        # Паттерн для пункта (введен/в ред.)
+        if operation.point_ref or operation.point_number:
+            if operation.operation_kind == "append_section_item":
+                point_num = operation.point_number or operation.point_ref
+                return f"(п. {point_num} введен {introduced_label})"
+            if operation.operation_kind == "replace_point":
+                point_num = operation.point_number or operation.point_ref
+                return f"(п. {point_num} в ред. {label})"
+
+        # Общий паттерн для replace_phrase_globally и других операций
+        return f"(в ред. {label})"
 
     def _introduced_label(self, label: str) -> str:
         value = compact(label)
-        if value.startswith("\u041f\u0440\u0438\u043a\u0430\u0437 "):
-            return "\u041f\u0440\u0438\u043a\u0430\u0437\u043e\u043c " + value[len("\u041f\u0440\u0438\u043a\u0430\u0437 "):]
+
+        # Обработка различных типов документов с правильным инструментальным падежом
+        prefixes = [
+            ("Приказ ", "Приказом "),
+            ("Решение ", "Решением "),
+            ("Указ ", "Указом "),
+            ("Постановление ", "Постановлением "),
+            ("Распоряжение ", "Распоряжением "),
+            ("Закон ", "Законом "),
+            ("Указание ", "Указанием "),
+        ]
+
+        for prefix, instrumental in prefixes:
+            if value.startswith(prefix):
+                return instrumental + value[len(prefix):]
+
+        # Fallback: использовать to_instrumental для необработанных типов
         return to_instrumental(value)
 
 
@@ -93,7 +177,7 @@ class RevisionMarkerInserter:
         if not (0 <= paragraph_index < len(document.paragraphs)):
             return paragraph_index
         top_point_pattern = re.compile(r"^\d+\.\s+")
-        subpoint_pattern = re.compile(r"^[\u0430-\u044f\u0451a-z](?:\(\d+\))?\)\s+", re.IGNORECASE)
+        subpoint_pattern = re.compile(r"^[а-яёa-z](?:\(\d+\))?\)\s+", re.IGNORECASE)
         paragraphs = document.paragraphs
         start_index = paragraph_index
         text = paragraphs[start_index].text.strip()
