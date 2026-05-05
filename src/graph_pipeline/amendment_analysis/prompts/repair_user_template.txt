@@ -1,0 +1,50 @@
+Первичный анализ документа изменений не прошел gate полноты.
+
+Твоя задача: повторно извлечь все intents так, чтобы каждая фактическая директива из списка была представлена отдельным intent.
+
+Правила repair:
+- не сокращай несколько разных директив в один intent;
+- если одна строка содержит несколько удаляемых/заменяемых фрагментов, верни отдельный intent на каждый фрагмент;
+- для replace_phrase_globally old_text должен быть точной фразой из кавычек в source_excerpt;
+- если source_excerpt содержит несколько фраз в кавычках перед "исключить", каждая такая фраза должна стать отдельным intent с new_text="";
+- запрещено брать old_text из другой директивы или из похожего места документа;
+- если строка содержит несколько подпунктов, верни отдельный intent на каждый подпункт;
+- сохраняй вложенную адресацию: parent_point_ref/parent_point_number, subpoint_ref, paragraph_ordinal;
+- для преамбулы используй section_hint="преамбула";
+- source_excerpt должен быть точной исходной формулировкой директивы.
+
+Оценочный список директив, которые должны быть покрыты:
+{directives_json}
+
+Предыдущий неполный список intents:
+{previous_intents_json}
+
+Верни только JSON формата:
+{{
+  "intents": [
+    {{
+      "change_id": "c1",
+      "operation_kind": "insert_point|replace_point|replace_phrase_globally|append_words_to_point|repeal_point|append_section_item|replace_appendix_block|insert_list_entry|replace_person_role|unknown",
+      "appendix_number": "",
+      "anchor_text_hint": "",
+      "point_ref": "",
+      "point_number": 0,
+      "parent_point_ref": "",
+      "parent_point_number": 0,
+      "subpoint_ref": "",
+      "paragraph_ordinal": 0,
+      "person_name_hint": "",
+      "new_text": "",
+      "old_text": "",
+      "appended_words": "",
+      "new_item_text": "",
+      "new_block_lines": [],
+      "section_hint": "",
+      "source_excerpt": "",
+      "confidence": 0.0
+    }}
+  ]
+}}
+
+Текст документа изменений:
+{amendment_text}

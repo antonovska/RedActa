@@ -1,0 +1,34 @@
+Извлеки все изменения из документа-поправки.
+
+Верни JSON формата:
+{{
+  "intents": [
+    {{
+      "change_id": "c1",
+      "operation_kind": "insert_point|replace_point|replace_phrase_globally|append_words_to_point|repeal_point|append_section_item|replace_appendix_block|insert_list_entry|replace_person_role|unknown",
+      "appendix_number": "",
+      "anchor_text_hint": "",
+      "point_ref": "",
+      "point_number": 0,
+      "parent_point_ref": "",
+      "parent_point_number": 0,
+      "subpoint_ref": "",
+      "paragraph_ordinal": 0,
+      "person_name_hint": "",
+      "new_text": "",
+      "old_text": "",
+      "appended_words": "",
+      "new_item_text": "",
+      "new_block_lines": [],
+      "section_hint": "",
+      "source_excerpt": "",
+      "confidence": 0.0
+    }}
+  ]
+}}
+
+Если поле не применимо — оставь пустую строку "" или пустой массив [].
+Если значение не удается определить уверенно — не выдумывай.
+
+Текст документа изменений:
+{amendment_text}

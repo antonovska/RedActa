@@ -1,0 +1,21 @@
+Верни JSON вида:
+{{
+  "selected_candidate_id": "cand_1",
+  "confidence": 0.0,
+  "reason": "",
+  "still_ambiguous": false
+}}
+
+Если уверенного выбора нет, верни:
+{{
+  "selected_candidate_id": "",
+  "confidence": 0.0,
+  "reason": "почему кандидаты остаются неоднозначными",
+  "still_ambiguous": true
+}}
+
+Intent:
+{intent_json}
+
+Candidates:
+{candidates_json}
