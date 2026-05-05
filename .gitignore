@@ -29,3 +29,8 @@ models/*
 .claude/
 .worktrees/
 tests/
+
+# Local working notes
+docs/
+структура папок редакций.txt
+структура пометок.txt

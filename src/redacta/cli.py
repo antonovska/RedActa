@@ -65,7 +65,7 @@ def _run_batch_command(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run graph_pipeline")
+    parser = argparse.ArgumentParser(description="Run redacta")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_case_parser = subparsers.add_parser("run-case", help="Run one local case")

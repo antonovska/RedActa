@@ -384,7 +384,7 @@ def _repair_analysis_once(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run graph_pipeline on one local case")
+    parser = argparse.ArgumentParser(description="Run redacta on one local case")
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--workspace-root", type=Path, default=Path(__file__).parent)
     parser.add_argument("--models-config", type=Path, default=None)

@@ -16,13 +16,13 @@ dependencies = [
 ]
 
 [project.scripts]
-graph-pipeline = "graph_pipeline.cli:main"
+graph-pipeline = "redacta.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-graph_pipeline = [
+redacta = [
     "prompts/*.txt",
     "prompts/*.md",
     "amendment_analysis/prompts/*.txt",

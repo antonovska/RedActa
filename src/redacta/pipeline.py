@@ -1632,7 +1632,7 @@ def run_graph(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run graph_pipeline through LangGraph orchestration")
+    parser = argparse.ArgumentParser(description="Run redacta through LangGraph orchestration")
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--workspace-root", type=Path, default=Path(__file__).parent)
     parser.add_argument("--models-config", type=Path, default=None)
