@@ -3,7 +3,6 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 dist/
-build/
 .venv/
 .pytest_cache/
 
@@ -19,18 +18,9 @@ redactions/*
 !redactions/.gitkeep
 models/*
 !models/.gitkeep
-*.docx
 
 # Jupyter
 .ipynb_checkpoints/
 
-# IDE and local tooling
-.kiro/
-.claude/
-.worktrees/
-tests/
-
 # Local working notes
 docs/
-структура папок редакций.txt
-структура пометок.txt
