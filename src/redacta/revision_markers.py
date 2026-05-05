@@ -18,11 +18,8 @@ class ConsultantMarkerFormatter:
         if not label:
             return ""
 
-        # Паттерн для repeal_point - "утратил силу. - ..."
         if operation.operation_kind == "repeal_point":
-            if operation.point_number:
-                return f"{operation.point_number}. Утратил силу. - {label}"
-            return f"Утратил силу. - {label}"
+            return ""
 
         introduced_label = self._introduced_label(operation.source_document_label)
 
