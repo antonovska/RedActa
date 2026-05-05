@@ -105,6 +105,7 @@ class AmendmentAnalyzer:
         if directives:
             intents = self._ensure_directive_coverage(intents, [str(item) for item in directives], label, lines)
         intents = self._rebuild_phrase_deletions(intents)
+        intents = self._deduplicate_phrase_intents(intents)
         # Если документ содержит таблицу с данными — это table insert операция.
         # Принудительно перезаписываем operation_kind и new_block_lines для всех intents.
         table_payload = self._extract_table_payload(amendment_doc)
@@ -290,6 +291,80 @@ class AmendmentAnalyzer:
                 )
             )
         return intents + cascade
+
+    def _deduplicate_phrase_intents(self, intents: list[ChangeIntent]) -> list[ChangeIntent]:
+        grouped: dict[tuple[str, str, str], list[ChangeIntent]] = {}
+        for intent in intents:
+            if intent.operation_kind != "replace_phrase_globally" or not compact(intent.old_text):
+                continue
+            key = (
+                intent.operation_kind,
+                compact(intent.old_text).lower(),
+                compact(intent.new_text).lower(),
+            )
+            grouped.setdefault(key, []).append(intent)
+
+        keep_ids: set[int] = set()
+        duplicate_ids: set[int] = set()
+        for group in grouped.values():
+            if len(group) == 1:
+                keep_ids.add(id(group[0]))
+                continue
+
+            scoped = [intent for intent in group if self._phrase_target_scope_score(intent) > 0]
+            candidates = scoped or group[:1]
+            best_by_scope: dict[tuple[str, str, str, int | None, str, str], ChangeIntent] = {}
+            for intent in candidates:
+                scope_key = (
+                    compact(intent.point_ref).lower(),
+                    compact(intent.parent_point_ref).lower(),
+                    compact(intent.subpoint_ref).lower(),
+                    intent.paragraph_ordinal,
+                    compact(intent.section_hint).lower(),
+                    compact(intent.appendix_number).lower(),
+                )
+                current = best_by_scope.get(scope_key)
+                if current is None or self._phrase_richness_score(intent) > self._phrase_richness_score(current):
+                    best_by_scope[scope_key] = intent
+            keep_ids.update(id(intent) for intent in best_by_scope.values())
+            duplicate_ids.update(id(intent) for intent in group)
+
+        deduped: list[ChangeIntent] = []
+        emitted: set[int] = set()
+        for intent in intents:
+            intent_id = id(intent)
+            if intent_id in duplicate_ids:
+                if intent_id not in keep_ids or intent_id in emitted:
+                    continue
+                emitted.add(intent_id)
+            deduped.append(intent)
+        return deduped
+
+    def _phrase_scope_score(self, intent: ChangeIntent) -> int:
+        return self._phrase_target_scope_score(intent) + self._phrase_excerpt_score(intent)
+
+    def _phrase_target_scope_score(self, intent: ChangeIntent) -> int:
+        score = 0
+        for value in (
+            intent.point_ref,
+            intent.parent_point_ref,
+            intent.subpoint_ref,
+            intent.section_hint,
+            intent.appendix_number,
+        ):
+            if compact(value):
+                score += 1
+        if intent.paragraph_ordinal is not None:
+            score += 1
+        return score
+
+    def _phrase_excerpt_score(self, intent: ChangeIntent) -> int:
+        if compact(intent.source_excerpt):
+            return min(3, len(compact(intent.source_excerpt)) // 80)
+        return 0
+
+    def _phrase_richness_score(self, intent: ChangeIntent) -> int:
+        return self._phrase_target_scope_score(intent) * 10 + self._phrase_excerpt_score(intent)
 
     def _fill_structural_hints(self, intent: ChangeIntent, lines: list[str], full_text: str) -> None:
         source = intent.source_excerpt or self._find_best_source_line(intent, lines) or full_text

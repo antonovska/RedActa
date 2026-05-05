@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from graph_pipeline.deterministic_intent_extractor import DeterministicIntentExtractor
 from graph_pipeline.amendment_analyzer import AmendmentAnalyzer
+from graph_pipeline.run_case import _estimate_action_units
 from graph_pipeline.schema import ChangeIntent
 
 
@@ -64,6 +65,16 @@ class DeterministicIntentExtractorTest(unittest.TestCase):
         self.assertEqual("\u0436", intents[0].subpoint_ref)
         self.assertEqual(2, intents[0].paragraph_ordinal)
 
+    def test_action_unit_estimate_ignores_subpoint_quotes_for_phrase_deletion(self) -> None:
+        line = (
+            '\u0432 \u0430\u0431\u0437\u0430\u0446\u0435 \u0432\u0442\u043e\u0440\u043e\u043c '
+            '\u043f\u043e\u0434\u043f\u0443\u043d\u043a\u0442\u0430 "\u0436" '
+            '\u0441\u043b\u043e\u0432\u0430 "old citation" '
+            '\u0438\u0441\u043a\u043b\u044e\u0447\u0438\u0442\u044c;'
+        )
+
+        self.assertEqual(1, _estimate_action_units(line))
+
     def test_merge_prefers_deterministic_duplicate_and_keeps_llm_complex_intent(self) -> None:
         analyzer = AmendmentAnalyzer.__new__(AmendmentAnalyzer)
         deterministic = ChangeIntent(
@@ -94,6 +105,40 @@ class DeterministicIntentExtractorTest(unittest.TestCase):
         )
 
         self.assertEqual(["d1", "c2"], [intent.change_id for intent in merged])
+
+    def test_deduplicate_phrase_intents_prefers_more_scoped_duplicate(self) -> None:
+        analyzer = AmendmentAnalyzer.__new__(AmendmentAnalyzer)
+        broad = ChangeIntent(
+            change_id="c3",
+            operation_kind="replace_phrase_globally",
+            source_document_label="doc",
+            old_text="same citation",
+            new_text="",
+            source_excerpt=(
+                '\u0441\u043b\u043e\u0432\u0430 "same citation" \u0438\u0441\u043a\u043b\u044e\u0447\u0438\u0442\u044c '
+                'with enough surrounding text to avoid treating excerpt length as target scope'
+            ),
+        )
+        scoped = ChangeIntent(
+            change_id="c11",
+            operation_kind="replace_phrase_globally",
+            source_document_label="doc",
+            point_ref="\u0436",
+            parent_point_ref="2",
+            subpoint_ref="\u0436",
+            paragraph_ordinal=2,
+            old_text="same citation",
+            new_text="",
+            source_excerpt=(
+                '\u0432 \u0430\u0431\u0437\u0430\u0446\u0435 \u0432\u0442\u043e\u0440\u043e\u043c '
+                '\u043f\u043e\u0434\u043f\u0443\u043d\u043a\u0442\u0430 "\u0436" '
+                '\u0441\u043b\u043e\u0432\u0430 "same citation" \u0438\u0441\u043a\u043b\u044e\u0447\u0438\u0442\u044c;'
+            ),
+        )
+
+        deduped = analyzer._deduplicate_phrase_intents([broad, scoped])
+
+        self.assertEqual(["c11"], [intent.change_id for intent in deduped])
 
 
 if __name__ == "__main__":

@@ -153,7 +153,13 @@ def _read_doc_lines(doc_path: Path) -> list[str]:
 def _estimate_action_units(line: str) -> int:
     lower = line.lower()
     if "исключить" in lower:
-        quoted = re.findall(r"[\"«]([^\"»]+)[\"»]", line)
+        region_match = re.search(
+            r"\bслов[ао]\b(.*?)\bисключить\b",
+            line,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        region = region_match.group(1) if region_match else line
+        quoted = re.findall(r"[\"«]([^\"»]+)[\"»]", region)
         return max(1, len(quoted))
     if "подпункты" in lower and "изложить" in lower:
         before_action = re.split(r"\bизложить\b", line, flags=re.IGNORECASE)[0]
