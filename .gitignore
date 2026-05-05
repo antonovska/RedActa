@@ -40,6 +40,9 @@ PROJECT_TASKS.md
 .kiro/
 .claude/
 
+# Development-only: tests stay local, not published
+tests/
+
 # Private/generated documents
 *.docx
 
