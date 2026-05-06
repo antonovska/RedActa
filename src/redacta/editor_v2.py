@@ -51,6 +51,9 @@ def set_semicolon_ending(paragraph: Paragraph) -> None:
 
 def normalize_item_text(text: str) -> str:
     value = text.strip()
+    quoted = re.match(r'^[«"](.+)[»"]([.;])?$', value, flags=re.DOTALL)
+    if quoted:
+        value = quoted.group(1).strip() + (quoted.group(2) or "")
     value = re.sub(r";{2,}$", ";", value)
     value = re.sub(r'\."\.$', ".", value)
     return value
@@ -351,11 +354,17 @@ class EditorV2:
                         start = curr
                         prev = curr
         else:  # paragraph_ordinal is guaranteed None here
-            deleted_count = self._delete_point_continuation_paragraphs(document, point_index)
+            deleted_count = self._delete_point_continuation_paragraphs(document, point_index, operation.point_ref)
             if deleted_count:
                 drift.record_delete(operation.operation_id, point_index + 1, deleted_count)
         text = normalize_item_text(operation.new_text)
-        if operation.point_number is not None and not operation.subpoint_ref and not text.startswith(f"{operation.point_number}."):
+        starts_with_point_ref = bool(operation.point_ref and text.startswith(f"{operation.point_ref}."))
+        if (
+            operation.point_number is not None
+            and not operation.subpoint_ref
+            and not starts_with_point_ref
+            and not text.startswith(f"{operation.point_number}.")
+        ):
             text = f"{operation.point_number}. {text}"
         if text.count('"') % 2 == 1:
             if text.endswith("."):
@@ -366,6 +375,10 @@ class EditorV2:
         operation.paragraph_indices = [point_index]
 
     def _resolve_replace_point_index(self, document: Document, operation: ResolvedOperation, drift: IndexDriftTracker) -> int:
+        if operation.point_ref and re.match(r"^\d+\.\d+", operation.point_ref):
+            current_idx = self._find_point_ref_start_index(document, operation.point_ref)
+            if current_idx is not None:
+                return current_idx
         if operation.point_number and operation.point_number > 0:
             current_idx = self._find_point_block_start_index(document, operation.point_number)
             if current_idx is not None:
@@ -606,15 +619,25 @@ class EditorV2:
                 return idx
         return None
 
-    def _delete_point_continuation_paragraphs(self, document: Document, point_index: int) -> int:
+    def _find_point_ref_start_index(self, document: Document, point_ref: str) -> int | None:
+        pattern = re.compile(rf"^{re.escape(point_ref)}\.\s+")
+        for idx, paragraph in enumerate(document.paragraphs):
+            if pattern.match(paragraph.text.strip()):
+                return idx
+        return None
+
+    def _delete_point_continuation_paragraphs(self, document: Document, point_index: int, point_ref: str = "") -> int:
         paragraphs = document.paragraphs
         if point_index < 0 or point_index >= len(paragraphs):
             return 0
         top_point_pattern = re.compile(r"^\d+\.\s+")
+        decimal_point_pattern = re.compile(r"^\d+(?:\.\d+)+\.\s+")
         delete_indices: list[int] = []
         for idx in range(point_index + 1, len(paragraphs)):
             text = paragraphs[idx].text.strip()
             if top_point_pattern.match(text):
+                break
+            if "." in (point_ref or "") and decimal_point_pattern.match(text):
                 break
             if text:
                 delete_indices.append(idx)
