@@ -474,7 +474,7 @@ class AmendmentAnalyzer:
         source = (intent.source_excerpt or "").lower()
         if intent.operation_kind != "replace_phrase_globally":
             return
-        if "\u043f\u043e \u0432\u0441\u0435\u043c\u0443 \u0442\u0435\u043a\u0441\u0442\u0443" not in source:
+        if "по всему тексту" not in source:
             return
         intent.point_ref = ""
         intent.point_number = None
