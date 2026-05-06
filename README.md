@@ -19,8 +19,6 @@
 - Локальная chat-модель, доступная через Ollama
 - `python-docx`
 - `openai`
-- `langgraph`
-- `langchain-core`
 
 Установка локальных зависимостей:
 
