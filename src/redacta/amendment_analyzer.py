@@ -134,10 +134,10 @@ class AmendmentAnalyzer:
         lines: list[str],
     ) -> list[ChangeIntent]:
         covered_directives: set[int] = set()
-        normalized_excerpts = [compact(intent.source_excerpt).lower() for intent in intents if intent.source_excerpt]
+        normalized_excerpts = [self._coverage_key(intent.source_excerpt) for intent in intents if intent.source_excerpt]
         used_excerpts: set[int] = set()
         for index, directive in enumerate(directives):
-            directive_core = self._directive_core(directive).lower()
+            directive_core = self._coverage_key(self._directive_core(directive))
             for excerpt_index, excerpt in enumerate(normalized_excerpts):
                 if excerpt_index in used_excerpts:
                     continue
@@ -181,15 +181,22 @@ class AmendmentAnalyzer:
         self._fill_structural_hints(intent, lines, full_text)
         self._normalize_operation_aliases(intent)
         self._normalize_intent_by_source_patterns(intent, lines, full_text)
+        self._normalize_phrase_text_fields(intent)
         self._normalize_appendix_rewrite_intent(intent, lines)
         self._normalize_point_level_append_intent(intent)
         if not intent.appendix_number:
             inferred_appendix = self._infer_appendix_number(intent, lines, declared_appendix_numbers)
             if inferred_appendix:
                 intent.appendix_number = inferred_appendix
+        self._normalize_global_phrase_scope(intent)
 
     def _directive_core(self, directive: str) -> str:
         return compact(str(directive).split("[atomic_unit=", 1)[0]).strip()
+
+    def _coverage_key(self, text: str) -> str:
+        value = compact(text).lower()
+        value = re.sub(r"[\s.;:]+$", "", value)
+        return value
 
     def _apply_atomic_unit_hint(self, intent: ChangeIntent, directive_core: str, directive: str) -> None:
         match = re.search(r"\[atomic_unit=(\d+)/(\d+)\]", directive, flags=re.IGNORECASE)
@@ -241,8 +248,10 @@ class AmendmentAnalyzer:
             self._fill_structural_hints(intent, lines, full_text)
             self._normalize_operation_aliases(intent)
             self._normalize_intent_by_source_patterns(intent, lines, full_text)
+            self._normalize_phrase_text_fields(intent)
             self._normalize_appendix_rewrite_intent(intent, lines)
             self._normalize_point_level_append_intent(intent)
+            self._normalize_global_phrase_scope(intent)
             intent = normalize_structured_replacement_intent(intent)
             self._apply_first_intent_preamble_rule(intent, index, len(intents))
             if intent.appendix_number:
@@ -460,6 +469,25 @@ class AmendmentAnalyzer:
         }
         if operation in alias_map:
             intent.operation_kind = alias_map[operation]
+
+    def _normalize_global_phrase_scope(self, intent: ChangeIntent) -> None:
+        source = (intent.source_excerpt or "").lower()
+        if intent.operation_kind != "replace_phrase_globally":
+            return
+        if "\u043f\u043e \u0432\u0441\u0435\u043c\u0443 \u0442\u0435\u043a\u0441\u0442\u0443" not in source:
+            return
+        intent.point_ref = ""
+        intent.point_number = None
+        intent.parent_point_ref = ""
+        intent.parent_point_number = None
+        intent.subpoint_ref = ""
+        intent.paragraph_ordinal = None
+
+    def _normalize_phrase_text_fields(self, intent: ChangeIntent) -> None:
+        if intent.operation_kind != "replace_phrase_globally":
+            return
+        intent.old_text = self._strip_outer_quotes(compact(intent.old_text))
+        intent.new_text = self._strip_outer_quotes(compact(intent.new_text))
 
     def _normalize_intent_by_source_patterns(self, intent: ChangeIntent, lines: list[str], full_text: str) -> None:
         source = intent.source_excerpt or ""
@@ -750,14 +778,15 @@ class AmendmentAnalyzer:
         intent.section_hint = "преамбула"
 
     def _extract_replaced_words(self, text: str) -> tuple[str, str] | None:
-        match = re.search(
+        patterns = [
             r"слова?\s+[«\"]([^»\"]+)[»\"]\s+заменить\s+слов(?:ом|ами)?\s+[«\"]([^»\"]+)[»\"]",
-            text,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if not match:
-            return None
-        return compact(match.group(1)), compact(match.group(2))
+            r"(?:термин|фразу?)\s+[«\"]([^»\"]+)[»\"]\s+заменить\s+на\s+[«\"]([^»\"]+)[»\"]",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+            if match:
+                return compact(match.group(1)), compact(match.group(2))
+        return None
 
     def _extract_point_ref(self, text: str) -> str:
         match = re.search(r"(пункт|пункта|пункте|пунктом|п\.?)\s+([0-9]+(\.[0-9]+)?)", text, flags=re.IGNORECASE)
