@@ -56,6 +56,10 @@ def _run_batch_command(args: argparse.Namespace) -> int:
             "total_cases": len(results),
             "completed_cases": len(validations),
             "valid_cases": sum(1 for item in validations if item.get("is_valid")),
+            "manual_review_required_cases": sum(
+                1 for item in validations if item.get("manual_review_required")
+            ),
+            "failed_cases": sum(1 for item in results if "error" in item),
         },
         "results": results,
     }

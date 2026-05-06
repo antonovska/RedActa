@@ -16,6 +16,7 @@ from .base_analyzer import BaseAnalyzer
 from .case_loader import load_case
 from .config import load_models_config
 from .editor import PipelineEditor
+from .manual_review import split_operations_for_manual_review
 from .pipeline_checklist import PipelineChecklist
 from .resolver import PipelineResolver
 from .revision_markers import RevisionMarkerInserter
@@ -324,6 +325,86 @@ def _enforce_analysis_gate(
     )
 
 
+def _analysis_blocked_operations(details: dict[str, Any]) -> list[dict[str, Any]]:
+    blocked: list[dict[str, Any]] = []
+    for label in details.get("amendment_docs_without_intents", []):
+        blocked.append(
+            {
+                "operation_id": "analysis:intents_missing",
+                "operation_kind": "analysis",
+                "status": "manual_review_required",
+                "reason": "amendment intents were not extracted",
+                "source_excerpt": str(label),
+            }
+        )
+    for item in details.get("coverage_failed", []):
+        for directive in item.get("directives", [])[int(item.get("intent_count", 0)):]:
+            blocked.append(
+                {
+                    "operation_id": "analysis:coverage_missing",
+                    "operation_kind": "analysis",
+                    "status": "manual_review_required",
+                    "reason": "amendment directive was not converted to an intent",
+                    "source_excerpt": str(directive),
+                }
+            )
+    return blocked
+
+
+def _manual_review_validation(
+    *,
+    structural_ok: bool = False,
+    judge_ok: bool = False,
+    judge_failures: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": "manual_review_required",
+        "manual_review_required": True,
+        "structural_ok": structural_ok,
+        "judge_ok": judge_ok,
+        "is_valid": False,
+        "skeleton_results": [],
+        "judge_summary": "Manual review is required before this draft can be treated as final.",
+        "judge_failures": judge_failures or ["Manual review is required."],
+        "intent_results": [],
+    }
+
+
+def _manual_review_result(
+    *,
+    case_id: str,
+    case_topology: str,
+    workspace_root: Path,
+    amendment_analyses: list[Any],
+    blocked_operations: list[dict[str, Any]],
+    reason: str,
+    base_doc: Path | None = None,
+) -> dict[str, Any]:
+    if not blocked_operations:
+        blocked_operations = [
+            {
+                "operation_id": "pipeline:manual_review",
+                "operation_kind": "pipeline",
+                "status": "manual_review_required",
+                "reason": reason,
+                "source_excerpt": "",
+            }
+        ]
+    return {
+        "case_id": case_id,
+        "case_topology": case_topology,
+        "workspace_root": str(workspace_root),
+        "status": "manual_review_required",
+        "manual_review_required": True,
+        "safe_operations_applied": 0,
+        "blocked_operations": blocked_operations,
+        "output_doc": None,
+        "base_doc": str(base_doc) if base_doc else "",
+        "amendments": [item.to_dict() for item in amendment_analyses],
+        "validation": _manual_review_validation(judge_failures=[reason]),
+    }
+
+
 def _repair_analysis_once(
     checklist: PipelineChecklist,
     *,
@@ -372,13 +453,13 @@ def _repair_analysis_once(
             },
         )
         repaired.append(repaired_analysis)
-    _enforce_analysis_gate(
-        checklist,
-        case_id=case_id,
-        amendment_analyses=repaired,
-        base_analyses=base_analyses,
-        amendment_paths=amendment_paths,
-        pass_name="repair",
+    ok, details = _analysis_gate_details(repaired, base_analyses, amendment_paths)
+    checklist.add(
+        stage="01_analysis_gate",
+        check_id="analysis_gate_repair",
+        kind="analysis_gate",
+        ok=ok,
+        details=details,
     )
     return repaired
 
@@ -408,6 +489,7 @@ def _run_single_base_flow(
     checklist_builder: ValidationChecklistBuilder,
     validator: StrictJudgeValidator,
     marker_inserter: RevisionMarkerInserter,
+    initial_blocked_operations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     _progress(case_id, "--- Шаг 2/4: Каркас и правки ---")
@@ -468,6 +550,8 @@ def _run_single_base_flow(
     steps: list[dict[str, Any]] = []
     all_operations = []
     all_statuses: list[str] = []
+    blocked_operations = list(initial_blocked_operations or [])
+    safe_operations_applied = 0
     for index, amendment_analysis in enumerate(amendment_analyses, 1):
         _progress(
             case_id,
@@ -547,7 +631,7 @@ def _run_single_base_flow(
                     },
                 },
             )
-            _enforce_resolution_gate(
+            repair_gate_ok = _enforce_resolution_gate(
                 runtime_checklist,
                 case_id=case_id,
                 base_doc=base_doc,
@@ -555,9 +639,44 @@ def _run_single_base_flow(
                 amendment_index=index,
                 resolved_operations=resolved_operations,
                 pass_name="repair",
+                raise_on_fail=False,
             )
-        edit_result = editor.edit(current_doc, step_output, resolution["resolved_operations"])
-        marker_result = marker_inserter.insert_markers(step_output, resolved_operations)
+            if not repair_gate_ok:
+                _progress(case_id, "    manual review required: unresolved operations remain after repair")
+        split = split_operations_for_manual_review(resolved_operations)
+        if split.blocked_operations:
+            blocked_operations.extend(split.blocked_operations)
+            runtime_checklist.add(
+                stage="03_resolution",
+                check_id=f"manual_review_blocked_{base_doc.stem}_{index}",
+                kind="manual_review_blocked_operations",
+                ok=False,
+                details={
+                    "amendment": amendment_analysis.metadata.document_label,
+                    "blocked_operations": split.blocked_operations,
+                },
+            )
+        if not split.safe_to_apply:
+            _progress(case_id, "    no safe operations to apply for this amendment")
+            steps.append(
+                {
+                    "amendment": amendment_analysis.to_dict(),
+                    "resolution": {
+                        "resolved_operations": [item.to_dict() for item in resolved_operations],
+                        "debug_candidates": resolution["debug_candidates"],
+                    },
+                    "edit": {"statuses": [], "drift_events": [], "applied_operations": []},
+                    "revision_markers": [],
+                    "output_doc": None,
+                    "manual_review_required": True,
+                    "blocked_operations": split.blocked_operations,
+                }
+            )
+            all_operations.extend(split.safe_to_apply)
+            continue
+        edit_result = editor.edit(current_doc, step_output, split.safe_to_apply)
+        marker_result = marker_inserter.insert_markers(step_output, split.safe_to_apply)
+        safe_operations_applied += len(split.safe_to_apply)
         _progress(
             case_id,
             f"    editor statuses={len(edit_result['statuses'])}, output={step_output.name}",
@@ -579,6 +698,8 @@ def _run_single_base_flow(
                 "amendment": amendment_analysis.to_dict(),
                 "resolution": {
                     "resolved_operations": [item.to_dict() for item in resolved_operations],
+                    "safe_to_apply": [item.to_dict() for item in split.safe_to_apply],
+                    "blocked_operations": split.blocked_operations,
                     "debug_candidates": resolution["debug_candidates"],
                 },
                 "edit": edit_result,
@@ -586,11 +707,30 @@ def _run_single_base_flow(
                 "output_doc": str(step_output),
             }
         )
-        all_operations.extend(resolved_operations)
+        all_operations.extend(split.safe_to_apply)
         all_statuses.extend(edit_result["statuses"])
         current_doc = step_output
 
     _progress(case_id, f"  edit steps: {len(steps)}")
+    manual_review_required = bool(blocked_operations)
+    if safe_operations_applied == 0:
+        validation = _manual_review_validation(
+            judge_failures=["No operation was safe enough to apply automatically."]
+        )
+        return {
+            "case_id": str(case_id),
+            "base_doc": str(base_doc),
+            "base_analysis": base_analysis.to_dict(),
+            "service_table_specs": [item.to_dict() for item in service_table_specs],
+            "validation_checklist": {"checks": runtime_checklist.items()},
+            "steps": steps,
+            "output_doc": None,
+            "status": "manual_review_required",
+            "manual_review_required": True,
+            "safe_operations_applied": 0,
+            "blocked_operations": blocked_operations,
+            "validation": validation,
+        }
     _progress(case_id, "  reanalyze final document")
     final_base_analysis = base_analyzer.analyze(current_doc)
     final_document = Document(current_doc)
@@ -646,6 +786,19 @@ def _run_single_base_flow(
         operation_statuses=all_statuses,
         operation_summary=operation_summary,
     )
+    validation_dict = validation.to_dict()
+    if manual_review_required:
+        validation_dict["status"] = "manual_review_required"
+        validation_dict["manual_review_required"] = True
+        validation_dict["is_valid"] = False
+        validation_dict["judge_ok"] = False
+        validation_dict.setdefault("judge_failures", [])
+        validation_dict["judge_failures"].append(
+            f"Manual review required: {len(blocked_operations)} operation(s) were not applied automatically."
+        )
+    else:
+        validation_dict["status"] = "valid" if validation.is_valid else "invalid"
+        validation_dict["manual_review_required"] = False
     _progress(
         case_id,
         f"  Валидация: {'OK' if validation.is_valid else 'NOT OK'} "
@@ -660,7 +813,11 @@ def _run_single_base_flow(
         "validation_checklist": checklist.to_dict(),
         "steps": steps,
         "output_doc": str(current_doc),
-        "validation": validation.to_dict(),
+        "status": "manual_review_required" if manual_review_required else ("valid" if validation.is_valid else "invalid"),
+        "manual_review_required": manual_review_required,
+        "safe_operations_applied": safe_operations_applied,
+        "blocked_operations": blocked_operations,
+        "validation": validation_dict,
     }
 
 
@@ -729,6 +886,21 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
         amendment_analyses=amendment_analyses,
         base_analyses=base_analyses,
     )
+    analysis_ok, analysis_details = _analysis_gate_details(amendment_analyses, base_analyses, amendment_paths)
+    analysis_blocked_operations = _analysis_blocked_operations(analysis_details)
+    total_intents = sum(len(item.intents) for item in amendment_analyses)
+    if not analysis_ok:
+        _progress(case_id, "analysis gate requires manual review")
+    if not base_analyses or analysis_details.get("bases_without_structure") or total_intents == 0:
+        return _manual_review_result(
+            case_id=case_id,
+            case_topology=case_topology,
+            workspace_root=workspace_root,
+            amendment_analyses=amendment_analyses,
+            blocked_operations=analysis_blocked_operations,
+            reason="Analysis gate requires manual review before structural editing.",
+            base_doc=case.get("base_doc"),
+        )
 
     if case_topology == "special_single_amendment_multi_base":
         base_runs = []
@@ -751,15 +923,25 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
                     checklist_builder=checklist_builder,
                     validator=validator,
                     marker_inserter=marker_inserter,
+                    initial_blocked_operations=analysis_blocked_operations,
                 )
             )
+        manual_review_required = any(item.get("manual_review_required") for item in base_runs)
         return {
             "case_id": case_id,
             "case_topology": case_topology,
             "workspace_root": str(workspace_root),
+            "status": "manual_review_required" if manual_review_required else (
+                "valid" if all(item["validation"]["is_valid"] for item in base_runs) else "invalid"
+            ),
+            "manual_review_required": manual_review_required,
             "amendments": [item.to_dict() for item in amendment_analyses],
             "base_runs": base_runs,
             "validation": {
+                "status": "manual_review_required" if manual_review_required else (
+                    "valid" if all(item["validation"]["is_valid"] for item in base_runs) else "invalid"
+                ),
+                "manual_review_required": manual_review_required,
                 "is_valid": all(item["validation"]["is_valid"] for item in base_runs),
                 "structural_ok": all(item["validation"]["structural_ok"] for item in base_runs),
                 "judge_ok": all(item["validation"]["judge_ok"] for item in base_runs),
@@ -785,6 +967,7 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
         checklist_builder=checklist_builder,
         validator=validator,
         marker_inserter=marker_inserter,
+        initial_blocked_operations=analysis_blocked_operations,
     )
 
     result = {
