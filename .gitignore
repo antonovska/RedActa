@@ -24,3 +24,7 @@ models/*
 
 # Local working notes
 docs/
+.aider*
+
+# Tests (run locally, not committed)
+tests/
