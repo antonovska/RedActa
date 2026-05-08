@@ -15,7 +15,7 @@ from .amendment_analyzer import AmendmentAnalyzer
 from .base_analyzer import BaseAnalyzer
 from .case_loader import load_case
 from .config import load_models_config
-from .editor import PipelineEditor
+from .editor_v2 import EditorV2
 from .manual_review import split_operations_for_manual_review
 from .pipeline_checklist import PipelineChecklist
 from .resolver import PipelineResolver
@@ -485,7 +485,7 @@ def _run_single_base_flow(
     base_analyzer: BaseAnalyzer,
     skeleton_builder: SkeletonBuilder,
     resolver: PipelineResolver,
-    editor: PipelineEditor,
+    editor: EditorV2,
     checklist_builder: ValidationChecklistBuilder,
     validator: StrictJudgeValidator,
     marker_inserter: RevisionMarkerInserter,
@@ -837,7 +837,7 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
     base_analyzer = BaseAnalyzer()
     skeleton_builder = SkeletonBuilder()
     resolver = PipelineResolver(config)
-    editor = PipelineEditor()
+    editor = EditorV2()
     checklist_builder = ValidationChecklistBuilder()
     validator = StrictJudgeValidator(config)
     marker_inserter = RevisionMarkerInserter()
@@ -986,6 +986,13 @@ def run_case(case: dict[str, Any], workspace_root: Path, models_config: Path | N
             }
             for index, step in enumerate(single_result["steps"], 1)
         ]
+    # Always write full result JSON to artifacts
+    artifacts_dir = workspace_root / "artifacts" / case_id
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    result_json_path = artifacts_dir / "result.json"
+    result_json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    _progress(case_id, f"  result json: {result_json_path}")
+
     _progress(case_id, "=" * 60)
     _progress(case_id, f"Пайплайн завершён за {_format_seconds(time.perf_counter() - total_start)}")
     _progress(case_id, f"  output: {result.get('output_doc', '')}")
