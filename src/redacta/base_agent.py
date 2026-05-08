@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import json
 import re
-from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Optional
 
@@ -47,115 +46,6 @@ def load_prompt(name: str) -> tuple[str, str]:
     """
     text = (_PROMPTS_DIR / f"{name}.md").read_text(encoding="utf-8")
     return _extract_prompt_section(text, "System"), _extract_prompt_section(text, "User")
-
-
-# ---------------------------------------------------------------------------
-# Общие датаклассы, используемые несколькими агентами
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ExtractedChange:
-    """Единичное изменение, извлечённое из документа-изменения."""
-    change_type: str          # add | replace | remove | other
-    description: str
-    target_hint: str
-    new_text: str
-    anchor_text: str = ""
-    old_text: str = ""
-
-
-@dataclass
-class EditOperation:
-    """Операция редактирования базового документа."""
-    action: str               # insert_after | replace_text | append_to_section
-    new_text: str
-    section_hint: str = ""
-    anchor_text: str = ""
-    old_text: str = ""
-    normalize_anchor_ending: bool = False
-    expected_postcondition: str = ""
-
-
-@dataclass
-class ChangeDirective:
-    """Структурная директива изменения (с номером пункта / абзаца)."""
-    directive_id: str
-    change_kind: str
-    target_hint: str
-    point_number: Optional[int] = None
-    paragraph_ordinals: list[int] = None
-    replacement_lines: list[str] = None
-    section_hint: str = ""
-    anchor_text: str = ""
-    old_text: str = ""
-    new_text: str = ""
-    render_mode: str = ""
-    note_text: str = ""
-    block_role: str = ""
-    source_excerpt: str = ""
-
-    def __post_init__(self) -> None:
-        if self.paragraph_ordinals is None:
-            self.paragraph_ordinals = []
-        if self.replacement_lines is None:
-            self.replacement_lines = []
-
-
-@dataclass
-class PlanStep:
-    """Шаг плана выполнения."""
-    step_id: str
-    directive_id: str
-    handler: str
-    reason: str = ""
-
-
-@dataclass
-class ValidationResult:
-    """Результат валидации."""
-    is_valid: bool
-    total_changes: int
-    applied_changes: int
-    missing_changes: list[str]
-    structural_issues: list[str]
-    semantic_score: float       # 0.0 – 1.0
-    details: str
-    step_validations: Optional[list[dict[str, Any]]] = None
-
-
-@dataclass
-class StepOutcome:
-    """Pipeline outcome for a single deterministic or model-driven step."""
-    phase: str
-    step_id: str
-    source_id: str
-    handler: str
-    status: str
-    status_kind: str
-    reason_kind: str
-    target_hint: str = ""
-    expected_postcondition: str = ""
-
-
-@dataclass
-class CheckpointRecord:
-    """Saved state snapshot of the document during execution."""
-    name: str
-    path: str
-    phase: str
-    step_id: str
-    status_kind: str
-
-
-@dataclass
-class RollbackEvent:
-    """Fallback/rollback metadata for a failed step."""
-    phase: str
-    step_id: str
-    action: str
-    reason_kind: str
-    details: str
-    checkpoint_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -228,70 +118,12 @@ def read_non_empty_paragraphs(doc_path: Path) -> list[str]:
     return [compact(p.text) for p in document.paragraphs if compact(p.text)]
 
 
-def build_base_snapshot(doc_path: Path, max_lines: int = 250) -> dict[str, Any]:
-    """Построить снапшот базового документа (индексированные строки + заголовки секций)."""
-    document = Document(doc_path)
-    indexed_lines: list[str] = []
-    section_lines: list[str] = []
-
-    for idx, paragraph in enumerate(document.paragraphs):
-        text = compact(paragraph.text)
-        if not text:
-            continue
-        line = f"{idx + 1:04d}: {text}"
-        indexed_lines.append(line)
-        if is_section_heading(text):
-            section_lines.append(line)
-
-    truncated = False
-    if max_lines > 0 and len(indexed_lines) > max_lines:
-        indexed_lines = indexed_lines[:max_lines]
-        truncated = True
-
-    return {
-        "indexed_lines": indexed_lines,
-        "sections": section_lines,
-        "truncated": truncated,
-        "total_non_empty_lines": len(read_non_empty_paragraphs(doc_path)),
-    }
-
-
 def delete_paragraph(paragraph: Paragraph) -> None:
     """Удалить абзац из документа."""
     element = paragraph._element
     parent = element.getparent()
     if parent is not None:
         parent.remove(element)
-
-
-def classify_status_text(status: str) -> str:
-    """Normalize a human-readable step status into a machine-friendly kind."""
-    lowered = compact(status).lower()
-    if lowered.startswith("error:") or " error:" in lowered:
-        return "error"
-    if "already_present" in lowered:
-        return "already_present"
-    if lowered.startswith("skipped:") or " skipped:" in lowered:
-        return "skipped"
-    if lowered.startswith("applied:") or " applied:" in lowered:
-        return "applied"
-    return "unknown"
-
-
-def infer_failure_reason(status: str) -> str:
-    """Infer a coarse failure/fallback reason from a status string."""
-    lowered = compact(status).lower()
-    if "model" in lowered or "json" in lowered:
-        return "model_output_error"
-    if "not found" in lowered or "не найден" in lowered or "отсутствует" in lowered:
-        return "matching_failure"
-    if "already present" in lowered or "already_present" in lowered:
-        return "no_op"
-    if lowered.startswith("skipped"):
-        return "fallback_skip"
-    if lowered.startswith("error"):
-        return "edit_failure"
-    return "ok"
 
 
 # ---------------------------------------------------------------------------
