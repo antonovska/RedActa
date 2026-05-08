@@ -349,9 +349,6 @@ class AmendmentAnalyzer:
             deduped.append(intent)
         return deduped
 
-    def _phrase_scope_score(self, intent: ChangeIntent) -> int:
-        return self._phrase_target_scope_score(intent) + self._phrase_excerpt_score(intent)
-
     def _phrase_target_scope_score(self, intent: ChangeIntent) -> int:
         score = 0
         for value in (

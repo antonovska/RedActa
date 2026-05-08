@@ -16,7 +16,6 @@ class ChangeIntent:
     structured_entry_ref: str | None = None
     table_row_ref: str | None = None
     table_column_ref: str | None = None
-    graph_scope_hint: str | None = None
     parent_point_ref: str = ""
     parent_point_number: int | None = None
     subpoint_ref: str = ""
@@ -74,15 +73,6 @@ class ResolvedOperation:
     source_excerpt: str = ""
     ambiguity_reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class ValidationReport:
-    is_valid: bool
-    intent_results: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

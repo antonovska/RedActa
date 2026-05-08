@@ -23,12 +23,6 @@ _MONTHS = {
 }
 
 
-def normalize_text(text: str) -> str:
-    value = compact(text).lower()
-    value = value.replace("«", "").replace("»", "").replace('"', "")
-    return value
-
-
 def build_source_document_label(amendment_doc: Path) -> str:
     label = amendment_doc.stem
     while label.startswith("изм_") or re.match(r"^изм\d*_", label):
