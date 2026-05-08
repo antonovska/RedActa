@@ -3,14 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .editor_v2 import EditorV2
 from .schema import ResolvedOperation
 
 
-SAFE_OPERATION_KINDS = {
-    "replace_point",
-    "replace_phrase_globally",
-    "repeal_point",
-}
+# Единственный источник правды — список поддерживаемых видов из EditorV2.
+# Если редактор умеет применить операцию — она проходит автоматически.
+SAFE_OPERATION_KINDS: frozenset[str] = EditorV2.SUPPORTED_KINDS
 
 
 @dataclass

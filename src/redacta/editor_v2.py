@@ -177,23 +177,41 @@ class IndexDriftTracker:
 
 
 class EditorV2:
+    # Все виды операций, которые edit() умеет применять к документу.
+    # Это единственный источник правды — manual_review.py читает отсюда,
+    # чтобы не держать дублирующий список.
+    SUPPORTED_KINDS: frozenset[str] = frozenset({
+        "replace_appendix_block",
+        "replace_point",
+        "replace_phrase_globally",
+        "append_words_to_point",
+        "repeal_point",
+        "replace_person_role",
+        "insert_point",
+        "append_section_item",
+        "insert_list_entry",
+    })
+
+    # Приоритет применения: меньше = раньше (структурные правки до текстовых)
+    _PRIORITY: dict[str, int] = {
+        "replace_appendix_block": 0,
+        "replace_point": 1,
+        "replace_phrase_globally": 1,
+        "append_words_to_point": 1,
+        "repeal_point": 1,
+        "replace_person_role": 1,
+        "insert_point": 2,
+        "append_section_item": 2,
+        "insert_list_entry": 2,
+    }
+
     def edit(self, base_doc: Path, output_doc: Path, operations: list[ResolvedOperation]) -> dict[str, Any]:
         document = Document(base_doc)
         statuses: list[str] = []
         applied_operations: list[ResolvedOperation] = []
         drift = IndexDriftTracker(len(document.paragraphs))
 
-        priority = {
-            "replace_appendix_block": 0,
-            "replace_point": 1,
-            "replace_phrase_globally": 1,
-            "append_words_to_point": 1,
-            "repeal_point": 1,
-            "replace_person_role": 1,
-            "insert_point": 2,
-            "append_section_item": 2,
-            "insert_list_entry": 2,
-        }
+        priority = self._PRIORITY
 
         for operation in sorted(operations, key=lambda item: priority.get(item.operation_kind, 99)):
             status_count = len(statuses)
