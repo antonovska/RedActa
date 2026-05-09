@@ -6,6 +6,11 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover
+    SentenceTransformer = None  # type: ignore[assignment,misc]
+
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
@@ -57,4 +62,90 @@ class LocalEmbeddingHttpClient:
             for index in range(len(candidates))
         ]
         scores.sort(key=lambda item: item[1], reverse=True)
+        return scores[:top_k]
+
+
+class HuggingFaceEmbeddingClient:
+    """
+    Клиент эмбеддингов на базе HuggingFace sentence-transformers.
+
+    Модель загружается лениво при первом вызове embed() — тяжёлые веса
+    не занимают память до фактического использования.
+
+    Поддерживает инструкционные префиксы для асимметричного поиска.
+    Для deepvk/USER2-base рекомендуется:
+        query_prompt    = "search_query: "
+        document_prompt = "search_document: "
+
+    При пустых промптах работает как обычная симметричная модель.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "deepvk/USER2-base",
+        query_prompt: str = "",
+        document_prompt: str = "",
+        device: str | None = None,
+        normalize_embeddings: bool = True,
+    ) -> None:
+        self.model_name = model_name
+        self.query_prompt = query_prompt
+        self.document_prompt = document_prompt
+        self.device = device
+        self.normalize_embeddings = normalize_embeddings
+        self._model: Any | None = None
+
+    def _get_model(self) -> Any:
+        if self._model is None:
+            if SentenceTransformer is None:  # pragma: no cover
+                raise ImportError(
+                    "sentence-transformers не установлен. "
+                    "Установите: pip install sentence-transformers"
+                )
+            self._model = SentenceTransformer(self.model_name, device=self.device)
+        return self._model
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """Кодирует тексты с document_prompt. Совместимо с интерфейсом других клиентов."""
+        if not texts:
+            return []
+        model = self._get_model()
+        prefixed = [f"{self.document_prompt}{t}" if self.document_prompt else t for t in texts]
+        vectors = model.encode(
+            prefixed,
+            normalize_embeddings=self.normalize_embeddings,
+            convert_to_numpy=True,
+        )
+        return [v.tolist() for v in vectors]
+
+    def _embed_query(self, query: str) -> list[float]:
+        """Кодирует запрос с query_prompt (внутреннее использование)."""
+        model = self._get_model()
+        text = f"{self.query_prompt}{query}" if self.query_prompt else query
+        vectors = model.encode(
+            [text],
+            normalize_embeddings=self.normalize_embeddings,
+            convert_to_numpy=True,
+        )
+        return vectors[0].tolist()
+
+    def find_most_similar(
+        self,
+        query: str,
+        candidates: list[str],
+        top_k: int = 1,
+    ) -> list[tuple[int, float]]:
+        """
+        Возвращает индексы и cosine-scores топ-k кандидатов, отсортированных
+        по убыванию сходства с запросом.
+        """
+        if not candidates:
+            return []
+        query_emb = self._embed_query(query)
+        doc_embs = self.embed(candidates)
+        scores = [
+            (i, cosine_similarity(query_emb, doc_embs[i]))
+            for i in range(len(candidates))
+        ]
+        scores.sort(key=lambda x: x[1], reverse=True)
         return scores[:top_k]

@@ -42,4 +42,9 @@ def embedding_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         "top_k": int(runtime.get("semantic_top_k", 5)),
         "auto_threshold": float(runtime.get("semantic_auto_threshold", 0.72)),
         "auto_margin": float(runtime.get("semantic_auto_margin", 0.08)),
+        # Инструкционные префиксы для асимметричного поиска (например, deepvk/USER2-base)
+        "query_prompt": str(runtime.get("embedding_query_prompt") or ""),
+        "document_prompt": str(runtime.get("embedding_document_prompt") or ""),
+        # Устройство для HuggingFace: None = авто, "cpu", "cuda", "mps"
+        "device": runtime.get("embedding_device") or None,
     }

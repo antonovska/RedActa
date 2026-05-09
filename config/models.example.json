@@ -1,4 +1,11 @@
 {
+  "_doc": {
+    "embedding_provider_options": {
+      "huggingface": "Модель загружается напрямую через sentence-transformers. Работает оффлайн если модель уже скачана или лежит на диске (embedding_model = путь к папке). Рекомендуется для большинства случаев.",
+      "local_http": "Модель запущена как отдельный HTTP-сервис (POST /embed). Используйте если модель уже обслуживается внешним процессом и пересоздавать окружение нельзя.",
+      "openai_compat": "OpenAI-совместимый API (infinity-emb, text-embeddings-inference, Ollama). Для случаев когда модель работает как отдельный сервис со стандартным API."
+    }
+  },
   "runtime": {
     "base_url": "http://127.0.0.1:11434/v1",
     "api_key": "ollama",
@@ -6,13 +13,18 @@
     "timeout": 900,
     "max_retries": 4,
     "enable_thinking": false,
-    "semantic_ranking_enabled": false,
-    "embedding_provider": "local_http",
-    "embedding_service_url": "http://127.0.0.1:8010",
-    "embedding_model_path": "models/deepvk_USER2-base",
+
+    "semantic_ranking_enabled": true,
+    "embedding_provider": "huggingface",
+    "embedding_model": "deepvk/USER2-base",
+    "embedding_query_prompt": "search_query: ",
+    "embedding_document_prompt": "search_document: ",
     "semantic_top_k": 5,
     "semantic_auto_threshold": 0.72,
-    "semantic_auto_margin": 0.08
+    "semantic_auto_margin": 0.08,
+
+    "_doc_offline": "Для оффлайн-использования: скачайте модель заранее (`python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('deepvk/USER2-base')\"`) или укажите путь к папке: embedding_model = 'models/deepvk_USER2-base'",
+    "_doc_local_http": "Для local_http: укажите embedding_provider='local_http' и embedding_service_url='http://127.0.0.1:8010'"
   },
   "models": {
     "default": "hf.co/ai-sage/GigaChat3.1-10B-A1.8B-GGUF:Q4_K_M",

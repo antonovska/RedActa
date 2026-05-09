@@ -21,7 +21,7 @@ from .ooxml_reader import (
 )
 from .prompt_loader import load_prompt_text
 from .schema import ChangeIntent, ResolutionCandidate, ResolvedOperation
-from .semantic_embeddings import LocalEmbeddingHttpClient
+from .semantic_embeddings import HuggingFaceEmbeddingClient, LocalEmbeddingHttpClient
 from .utils import looks_short_list_item, surname_stem, to_genitive, to_instrumental
 
 _RUSSIAN_SUBPOINT_LETTERS = "абвгдежзиклмнопрстуфхцчшщэюя"
@@ -108,6 +108,13 @@ class ResolverV2(BaseAgent):
                 self._embedding_client = LocalEmbeddingHttpClient(
                     service_url=str(embedding_cfg["service_url"]),
                     timeout=min(float(embedding_cfg["timeout"]), 60.0),
+                )
+            elif embedding_cfg["provider"] == "huggingface":
+                self._embedding_client = HuggingFaceEmbeddingClient(
+                    model_name=str(embedding_cfg["model"]),
+                    query_prompt=str(embedding_cfg["query_prompt"]),
+                    document_prompt=str(embedding_cfg["document_prompt"]),
+                    device=embedding_cfg["device"] or None,
                 )
             else:
                 self._embedding_client = EmbeddingClient(
@@ -1073,7 +1080,9 @@ class ResolverV2(BaseAgent):
                 next_starts = [idx for idx in appendix_starts if idx > scoped_start]
                 scoped_end = next_starts[0] if next_starts else len(records)
                 return records[scoped_start:scoped_end]
-        return records
+        # Нет appendix_number → намерение про основную часть документа.
+        # Возвращаем только записи до первого «Приложение».
+        return records[: appendix_starts[0]]
 
     def _target_scope_records(self, records: list[Any], intent: ChangeIntent) -> list[Any]:
         scoped_records = self._appendix_scope_records(records, intent)

@@ -13,6 +13,12 @@ dependencies = [
     "python-docx>=1.1.2",
 ]
 
+[project.optional-dependencies]
+huggingface = [
+    "sentence-transformers>=3.0",
+    "torch>=2.0",
+]
+
 [project.scripts]
 redacta = "redacta.cli:main"
 
